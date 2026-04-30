@@ -95,6 +95,10 @@ echo "→ Syncing version to $VERSION..."
 bun scripts/version-sync.mjs "$VERSION"
 echo ""
 
+echo "→ Verifying synced release files..."
+bun run lint 2>&1 || { echo "Error: Lint failed after version sync"; exit 1; }
+echo ""
+
 # Step 4: Commit (skip if versions were already at target)
 echo "→ Committing version bump..."
 git add -A

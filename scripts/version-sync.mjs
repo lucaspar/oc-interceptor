@@ -12,6 +12,7 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -79,6 +80,14 @@ if (pkg.version === version) {
     pkg.version = version;
     if (!dryRun) {
         writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf-8");
+        const formatResult = spawnSync("bun", ["x", "biome", "format", "--write", pkgPath], {
+            cwd: root,
+            stdio: "inherit",
+        });
+        if (formatResult.status !== 0) {
+            console.error("Failed to format package.json after version sync");
+            process.exit(formatResult.status ?? 1);
+        }
     }
 }
 
