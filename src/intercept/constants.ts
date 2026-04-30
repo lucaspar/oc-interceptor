@@ -5,6 +5,7 @@ export const INTERCEPT_COMMAND_NAME = "intercept";
 export const UNKNOWN_SESSION_ID = "unknown-session";
 export const INTERCEPT_DUMP_ROOT = join(tmpdir(), "opencode-interceptor");
 export const INTERCEPT_RETENTION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const INTERCEPT_SESSION_AFFINITY_HEADER = "x-session-affinity";
 
 export const INTERCEPT_USAGE = "Usage: `/intercept`, `/intercept on`, or `/intercept off`.";
 

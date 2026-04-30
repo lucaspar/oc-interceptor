@@ -16,6 +16,7 @@ import {
     recordInterceptCapture,
     registerInterceptFetchWrapper,
     resolveInterceptSessionId,
+    resolveInterceptSessionIdFromHeaders,
 } from "./state";
 
 export const INTERCEPT_MAX_RESPONSE_CAPTURE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -370,7 +371,9 @@ export function createInterceptFetchWrapper(
             return originalFetch(input, init);
         }
 
-        const sessionId = resolveInterceptSessionId(getActiveInterceptSessionId());
+        const sessionId =
+            resolveInterceptSessionIdFromHeaders(request.headers) ??
+            resolveInterceptSessionId(getActiveInterceptSessionId());
         const dumpRoot = getInterceptDumpRoot(sessionId);
         const startedAt = resolveNow(options);
         const response = await originalFetch(request);

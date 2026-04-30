@@ -222,6 +222,95 @@ describe("fetch interception core", () => {
         });
     });
 
+    test("request x-session-affinity chooses dump folder over active session", async () => {
+        const activeSessionId = `unit-active-${Date.now()}`;
+        const affinitySessionId = `ses_unit_affinity_${Date.now()}`;
+        const activeSessionRoot = getInterceptDumpRoot(activeSessionId);
+        const affinitySessionRoot = getInterceptDumpRoot(affinitySessionId);
+        cleanupPath(activeSessionRoot);
+        cleanupPath(affinitySessionRoot);
+
+        globalThis.fetch = toMockFetch(async () => {
+            return new Response(JSON.stringify({ text: "affinity-routed" }), {
+                status: 200,
+                headers: {
+                    "content-type": "application/json",
+                },
+            });
+        });
+
+        installInterceptFetch({
+            now: () => 100,
+            timestamp: () => "2026-04-19T06:00:01.000Z",
+        });
+
+        setActiveInterceptSession(activeSessionId);
+        setInterceptEnabled(true);
+
+        await globalThis.fetch(
+            "http://127.0.0.1:4010/v1/messages",
+            buildAnthropicInitWithBody(buildAnthropicBody("affinity"), {
+                "x-session-affinity": affinitySessionId,
+            }),
+        );
+
+        expect(existsSync(activeSessionRoot)).toBe(false);
+
+        const filenames = (await readdir(affinitySessionRoot)).sort();
+        expect(filenames).toHaveLength(3);
+        expect(filenames[0]).toStartWith("001-anthropic-");
+
+        const firstBase = filenames[0].replace(/\.(request|response|meta)\.json$/, "");
+        const firstRequest = readJson(`${affinitySessionRoot}/${firstBase}.request.json`);
+        expect(firstRequest.headers["x-session-affinity"]).toBe(affinitySessionId);
+        expect(getInterceptStateSnapshot()).toMatchObject({
+            activeSessionId,
+            captureCount: 1,
+            sessionSequenceById: {
+                [affinitySessionId]: 1,
+            },
+        });
+    });
+
+    test("unsafe x-session-affinity characters are sanitized before routing", async () => {
+        const activeSessionId = `unit-active-sanitize-${Date.now()}`;
+        const sanitizedSessionId = ".._evil_ses_123";
+        const activeSessionRoot = getInterceptDumpRoot(activeSessionId);
+        const sanitizedSessionRoot = getInterceptDumpRoot(sanitizedSessionId);
+        cleanupPath(activeSessionRoot);
+        cleanupPath(sanitizedSessionRoot);
+
+        globalThis.fetch = toMockFetch(async () => {
+            return new Response(JSON.stringify({ text: "sanitized" }), {
+                status: 200,
+                headers: {
+                    "content-type": "application/json",
+                },
+            });
+        });
+
+        installInterceptFetch({
+            now: () => 100,
+            timestamp: () => "2026-04-19T06:00:01.000Z",
+        });
+
+        setActiveInterceptSession(activeSessionId);
+        setInterceptEnabled(true);
+
+        await globalThis.fetch(
+            "http://127.0.0.1:4010/v1/messages",
+            buildAnthropicInitWithBody(buildAnthropicBody("sanitize"), {
+                "x-session-affinity": "../evil/ses 123",
+            }),
+        );
+
+        expect(existsSync(activeSessionRoot)).toBe(false);
+        expect((await readdir(sanitizedSessionRoot)).sort()).toHaveLength(3);
+        expect(getInterceptStateSnapshot().sessionSequenceById).toEqual({
+            [sanitizedSessionId]: 1,
+        });
+    });
+
     test("streaming responses persist replay text instead of raw SSE frames", async () => {
         const sessionId = `unit-stream-${Date.now()}`;
         const sessionRoot = getInterceptDumpRoot(sessionId);

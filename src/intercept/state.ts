@@ -1,5 +1,9 @@
 import { join } from "node:path";
-import { INTERCEPT_DUMP_ROOT, UNKNOWN_SESSION_ID } from "./constants";
+import {
+    INTERCEPT_DUMP_ROOT,
+    INTERCEPT_SESSION_AFFINITY_HEADER,
+    UNKNOWN_SESSION_ID,
+} from "./constants";
 
 export type InterceptAnomalyScope = "capture" | "cleanup";
 
@@ -120,6 +124,29 @@ export function recordInterceptAnomaly(input: {
 export function resolveInterceptSessionId(sessionId?: string | null): string {
     const normalized = sessionId?.trim();
     return normalized ? normalized : UNKNOWN_SESSION_ID;
+}
+
+function sanitizeSessionAffinity(value: string): string | null {
+    const sanitized = value
+        .trim()
+        .replace(/[^A-Za-z0-9._:-]+/g, "_")
+        .replace(/_+/g, "_")
+        .slice(0, 128);
+
+    if (!/[A-Za-z0-9]/.test(sanitized)) {
+        return null;
+    }
+
+    return sanitized;
+}
+
+export function resolveInterceptSessionIdFromHeaders(headers: Headers): string | null {
+    const sessionAffinity = headers.get(INTERCEPT_SESSION_AFFINITY_HEADER);
+    if (!sessionAffinity) {
+        return null;
+    }
+
+    return sanitizeSessionAffinity(sessionAffinity);
 }
 
 export function setActiveInterceptSession(sessionId?: string | null): string {
