@@ -11,6 +11,12 @@ type NotificationRequest = {
     path: { id: string };
     body: {
         noReply: true;
+        agent?: string;
+        model?: {
+            providerID: string;
+            modelID: string;
+        };
+        variant?: string;
         parts: Array<{
             type: "text";
             text: string;
@@ -24,23 +30,73 @@ type PluginSessionClient = {
     promptAsync?: (input: NotificationRequest) => Promise<unknown>;
 };
 
-async function sendIgnoredMessage(ctx: Parameters<Plugin>[0], sessionId: string, text: string) {
+type LiveNotificationParams = {
+    agent?: string;
+    variant?: string;
+    model?: {
+        providerID: string;
+        modelID: string;
+    };
+};
+
+const liveNotificationParamsBySession = new Map<string, LiveNotificationParams>();
+
+type ChatMessageInput = Parameters<NonNullable<Awaited<ReturnType<Plugin>>["chat.message"]>>[0];
+type ChatParamsInput = Parameters<NonNullable<Awaited<ReturnType<Plugin>>["chat.params"]>>[0];
+
+function extractLiveNotificationParams(input: {
+    agent?: string;
+    variant?: string;
+    model?: { providerID?: string; modelID?: string };
+}): LiveNotificationParams {
+    return {
+        ...(input.agent ? { agent: input.agent } : {}),
+        ...(input.variant ? { variant: input.variant } : {}),
+        ...(input.model?.providerID && input.model.modelID
+            ? { model: { providerID: input.model.providerID, modelID: input.model.modelID } }
+            : {}),
+    };
+}
+
+function rememberLiveNotificationParams(
+    sessionId: string | undefined,
+    input: ChatMessageInput | ChatParamsInput,
+): void {
+    if (!sessionId) {
+        return;
+    }
+
+    const next = {
+        ...(liveNotificationParamsBySession.get(sessionId) ?? {}),
+        ...extractLiveNotificationParams(input),
+    };
+
+    liveNotificationParamsBySession.set(sessionId, next);
+}
+
+async function sendIgnoredMessage(
+    ctx: Parameters<Plugin>[0],
+    sessionId: string,
+    text: string,
+    params: LiveNotificationParams = {},
+) {
     const session = ctx.client.session as PluginSessionClient | undefined;
     const request: NotificationRequest = {
         path: { id: sessionId },
         body: {
             noReply: true,
+            ...params,
             parts: [{ type: "text", text, ignored: true }],
         },
     };
 
-    if (typeof session?.promptAsync === "function") {
-        await session.promptAsync(request);
+    if (typeof session?.prompt === "function") {
+        await Promise.resolve(session.prompt(request));
         return;
     }
 
-    if (typeof session?.prompt === "function") {
-        await Promise.resolve(session.prompt(request));
+    if (typeof session?.promptAsync === "function") {
+        await session.promptAsync(request);
         return;
     }
 
@@ -92,9 +148,11 @@ const plugin: Plugin = async (ctx) => {
         },
         "chat.message": async (input) => {
             syncActiveSession(input.sessionID);
+            rememberLiveNotificationParams(input.sessionID, input);
         },
         "chat.params": async (input) => {
             syncActiveSession(input.sessionID);
+            rememberLiveNotificationParams(input.sessionID, input);
         },
         "command.execute.before": async (input) => {
             if (input.command !== INTERCEPT_COMMAND_NAME) {
@@ -109,6 +167,7 @@ const plugin: Plugin = async (ctx) => {
                     argumentsText: input.arguments,
                     sessionId: input.sessionID,
                 }),
+                liveNotificationParamsBySession.get(input.sessionID) ?? {},
             );
             throwHandledSentinel();
         },
